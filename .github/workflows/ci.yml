@@ -65,8 +65,9 @@ jobs:
       - name: Install dependencies
         run: composer install --no-interaction --no-progress --prefer-dist
 
+      # Through PDO rather than the runner's mysql client, which may not match the MariaDB server version.
       - name: Create schema
-        run: mysql --host=127.0.0.1 --user=orders --password=secret orders_test < database/schema.sql
+        run: php bin/run-sql.php database/schema.sql
 
       - name: Integration tests
         run: vendor/bin/phpunit --testsuite Integration
