@@ -47,11 +47,13 @@ src/
     OrderController.php обработка запросов страниц заказов
     View.php, Response.php, Csrf.php
 templates/              HTML-шаблоны
-database/               schema.sql (MySQL), schema.sqlite.sql, seed.sql
+database/               schema.sql (MySQL), schema.sqlite.sql, seed.sql,
+                        migrations/ — переход существующей legacy-базы
+bin/                    создание SQLite-базы, выполнение SQL-файла для тестовой БД
 tests/
   Unit/                 правила заказа, статусы, деньги
   Integration/          репозиторий и сервис на реальной БД
-  Http/                 контроллер без веб-сервера
+  Http/                 контроллер без веб-сервера (входит в набор Integration)
   Characterization/     legacy и новая версия через HTTP с одинаковыми действиями
 docs/MODERNIZATION.md   ход модернизации
 ```
@@ -97,14 +99,19 @@ DB_DSN="sqlite:$PWD/var/orders.sqlite" php -S 127.0.0.1:8080 -t public
 
 ## Схема БД
 
-Миграций как инструмента нет: схема применяется SQL-файлом.
+Инструмента миграций нет: схема применяется SQL-файлами.
+
+Новая база:
 
 ```bash
 mysql -u orders -p orders < database/schema.sql
 mysql -u orders -p orders < database/seed.sql   # демо-данные, все вымышленные
 ```
 
-Изменения относительно `legacy/schema.sql` — внешний ключ `order_items → orders` и индекс по статусу.
+Существующая база legacy-версии: сначала выполнить запросы-проверки из
+`database/migrations/001_add_foreign_key_and_status_index.sql` (позиции без заказа, неизвестные статусы,
+отрицательные цены), затем сам файл. Он добавляет внешний ключ `order_items → orders` и индекс по статусу,
+колонки не меняет — legacy-страницы продолжают работать.
 
 ## Пример использования
 
@@ -127,11 +134,12 @@ vendor/bin/phpunit --testsuite Unit         # только модульные, �
 vendor/bin/phpstan analyse                  # статический анализ
 ```
 
-Интеграционные тесты на MariaDB (схема должна быть применена к тестовой базе):
+Интеграционные тесты на MariaDB (в пустую тестовую базу):
 
 ```bash
-TEST_DB_DSN='mysql:host=127.0.0.1;dbname=orders_test;charset=utf8mb4' TEST_DB_USER=orders TEST_DB_PASSWORD=secret \
-  vendor/bin/phpunit --testsuite Integration
+export TEST_DB_DSN='mysql:host=127.0.0.1;dbname=orders_test;charset=utf8mb4' TEST_DB_USER=orders TEST_DB_PASSWORD=secret
+php bin/run-sql.php database/schema.sql
+vendor/bin/phpunit --testsuite Integration
 ```
 
 GitHub Actions: тесты на PHP 8.4 и 8.5 (SQLite), интеграционные тесты на MariaDB 11.8 и проверка Docker Compose —
@@ -146,13 +154,16 @@ GitHub Actions: тесты на PHP 8.4 и 8.5 (SQLite), интеграцион�
 - **Тесты на совпадение с legacy.** Прежде чем менять логику, нужно зафиксировать текущее поведение;
   намеренные отличия тоже закреплены тестами.
 - **Целые копейки** вместо `float` для денег.
-- **Оптимистическая проверка** при изменении статуса и добавлении позиций вместо блокировок: одна SQL-команда,
-  одинаково работает в MariaDB и SQLite.
+- **Защита от устаревшей страницы.** Формы смены статуса передают статус, который видел менеджер; если заказ
+  с тех пор изменился, действие отклоняется. Запись условная (`WHERE status = ?`), без блокировок — одинаково
+  работает в MariaDB и SQLite.
 - **Минимум классов.** Нет интерфейсов с одной реализацией, базовых классов и контейнера.
 
 ## Известные ограничения
 
 - Нет аутентификации (как и в legacy) — только для внутренней сети.
+- Пока legacy-версия работает с той же базой, она может записать неизвестный статус. Новая версия покажет такой
+  заказ, но менять его не даст — данные нужно исправить вручную.
 - Нет пагинации списка, удаления позиций, редактирования заказа.
 - Схема описана в двух файлах (MySQL и SQLite), их нужно менять вместе.
 - Характеризационные тесты используют SQLite; на MariaDB проверяются интеграционные тесты и Docker-сценарий в CI.
