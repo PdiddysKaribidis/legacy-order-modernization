@@ -1,0 +1,10 @@
+# legacy/ is the original code kept for comparison and is not analysed.
+# templates/ are plain PHP views included from View::renderFile().
+parameters:
+    level: 8
+    paths:
+        - src
+        - tests
+        - public
+        - bootstrap.php
+        - bin
