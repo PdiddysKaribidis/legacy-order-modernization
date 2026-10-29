@@ -1,7 +1,7 @@
 <?php
 /** @var App\Http\View $this */
 /** @var list<App\Order\Order> $orders */
-/** @var ?App\Order\OrderStatus $filter */
+/** @var string $filter raw status value from the query string */
 /** @var array<string, string> $errors */
 /** @var array<string, mixed> $old */
 /** @var string $csrfToken */
@@ -15,7 +15,7 @@ use App\Order\OrderStatus;
     <select name="status">
         <option value="">Все статусы</option>
         <?php foreach (OrderStatus::cases() as $status): ?>
-            <option value="<?= $status->value ?>"<?= $status === $filter ? ' selected' : '' ?>><?= $status->label() ?></option>
+            <option value="<?= $status->value ?>"<?= $status->value === $filter ? ' selected' : '' ?>><?= $status->label() ?></option>
         <?php endforeach ?>
     </select>
     <button type="submit">Показать</button>
@@ -33,7 +33,7 @@ use App\Order\OrderStatus;
         <tr>
             <td><a href="order.php?id=<?= $order->id ?>">#<?= $order->id ?></a></td>
             <td><?= $this->e($order->customerName) ?></td>
-            <td><?= $order->status()->label() ?></td>
+            <td><?= $this->e($order->statusLabel()) ?></td>
             <td class="total"><?= $this->money($order->total()) ?> руб.</td>
             <td><?= $order->createdAt->format('d.m.Y H:i') ?></td>
         </tr>

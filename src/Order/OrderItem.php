@@ -6,7 +6,8 @@ namespace App\Order;
 
 final class OrderItem
 {
-    public const MAX_QUANTITY = 1000;
+    /** Limit of the INT column; the legacy page had no business limit either. */
+    public const MAX_QUANTITY = 2_147_483_647;
 
     public function __construct(
         public readonly string $productName,
@@ -33,12 +34,13 @@ final class OrderItem
             'options' => ['min_range' => 1, 'max_range' => self::MAX_QUANTITY],
         ]);
         if ($parsedQuantity === false) {
-            $errors['quantity'] = 'Количество — целое число от 1 до ' . self::MAX_QUANTITY . '.';
+            $errors['quantity'] = 'Количество — целое положительное число.';
         }
 
+        // Zero is allowed, as in the legacy page (a free gift line, for example).
         $parsedPrice = Money::parse($price);
-        if ($parsedPrice === null || $parsedPrice === 0) {
-            $errors['price'] = 'Цена — положительное число, например 1500 или 1500,50.';
+        if ($parsedPrice === null) {
+            $errors['price'] = 'Цена — число не меньше нуля, например 1500 или 1500,50.';
         }
 
         if ($errors !== []) {

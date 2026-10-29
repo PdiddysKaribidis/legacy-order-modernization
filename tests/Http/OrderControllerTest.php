@@ -97,6 +97,7 @@ final class OrderControllerTest extends TestCase
             'csrf_token' => $this->token,
             'action' => 'change_status',
             'status' => 'shipped',
+            'expected_status' => 'new',
         ]);
 
         $this->assertSame(409, $response->status);
@@ -112,6 +113,56 @@ final class OrderControllerTest extends TestCase
             $response = $this->controller->handleOrderAction($id, ['csrf_token' => $this->token] + $post);
             $this->assertSame(422, $response->status);
         }
+    }
+
+    public function test_stale_cancel_form_does_not_cancel_paid_order(): void
+    {
+        $service = new OrderService($this->orders);
+        $id = $service->createOrder('Клиент', '');
+        $service->addItem($id, 'Ручка', '1', '50');
+
+        // The page was rendered while the order was new...
+        $form = $this->controller->showOrder($id, [])->body;
+        $this->assertStringContainsString('name="expected_status" value="new"', $form);
+
+        // ...then a colleague marked it as paid, and only after that the cancel was submitted.
+        $service->changeStatus($id, OrderStatus::Paid, 'new');
+        $response = $this->controller->handleOrderAction($id, [
+            'csrf_token' => $this->token,
+            'action' => 'cancel',
+            'expected_status' => 'new',
+        ]);
+
+        $this->assertSame(409, $response->status);
+        $this->assertStringContainsString('Заказ изменился', $response->body);
+        $this->assertSame(OrderStatus::Paid, $this->orders->get($id)->status());
+    }
+
+    public function test_order_with_unknown_status_is_shown_without_actions(): void
+    {
+        $pdo = TestDatabase::connect();
+        $orders = new OrderRepository($pdo);
+        $controller = new OrderController($orders, new OrderService($orders), new View(__DIR__ . '/../../templates'), new Csrf($this->session));
+        $id = $orders->create('Клиент', '', new \DateTimeImmutable());
+        $pdo->prepare('UPDATE orders SET status = ? WHERE id = ?')->execute(['archived', $id]);
+
+        $page = $controller->showOrder($id, []);
+        $list = $controller->listOrders([]);
+
+        $this->assertSame(200, $page->status);
+        $this->assertStringContainsString('<span class="status">archived</span>', $page->body);
+        $this->assertStringNotContainsString('name="action"', $page->body);
+        $this->assertSame(200, $list->status);
+        $this->assertStringContainsString('<td>archived</td>', $list->body);
+    }
+
+    public function test_unknown_status_filter_shows_nothing_as_in_legacy(): void
+    {
+        (new OrderService($this->orders))->createOrder('ООО Ромашка', '');
+
+        $body = $this->controller->listOrders(['status' => 'foo'])->body;
+
+        $this->assertStringNotContainsString('ООО Ромашка', $body);
     }
 
     public function test_array_in_query_does_not_break_page(): void

@@ -7,8 +7,9 @@ namespace App\Http;
 use App\Order\Money;
 
 /**
- * Renders plain PHP templates from templates/. Inside a template $this is the View,
- * so every output goes through $this->e() or $this->money().
+ * Renders plain PHP templates from templates/. Inside a template $this is the View.
+ * Any string that comes from users or the database is printed through $this->e();
+ * integers, enum labels and formatted dates are printed as is.
  */
 final class View
 {

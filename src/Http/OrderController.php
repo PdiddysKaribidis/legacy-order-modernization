@@ -82,7 +82,7 @@ final class OrderController
             $messageCode = match (self::field($post, 'action')) {
                 'add_item' => $this->addItem($id, $post),
                 'change_status' => $this->changeStatus($id, $post),
-                'cancel' => $this->cancel($id),
+                'cancel' => $this->cancel($id, $post),
                 default => throw new ValidationException(['action' => 'Неизвестное действие.']),
             };
         } catch (ValidationException $e) {
@@ -119,14 +119,17 @@ final class OrderController
         $status = OrderStatus::tryFrom(self::field($post, 'status'))
             ?? throw new ValidationException(['status' => 'Неизвестный статус.']);
 
-        $this->service->changeStatus($id, $status);
+        $this->service->changeStatus($id, $status, self::field($post, 'expected_status'));
 
         return 'status_changed';
     }
 
-    private function cancel(int $id): string
+    /**
+     * @param array<string, mixed> $post
+     */
+    private function cancel(int $id, array $post): string
     {
-        $this->service->cancelOrder($id);
+        $this->service->cancelOrder($id, self::field($post, 'expected_status'));
 
         return 'cancelled';
     }
@@ -138,10 +141,10 @@ final class OrderController
      */
     private function orderList(array $query, array $errors = [], array $old = [], int $status = 200): Response
     {
-        $filter = OrderStatus::tryFrom(self::field($query, 'status'));
+        $filter = self::field($query, 'status');
 
         return new Response($status, $this->view->render('orders', [
-            'orders' => $this->orders->findAll($filter),
+            'orders' => $this->orders->findAll($filter === '' ? null : $filter),
             'filter' => $filter,
             'errors' => $errors,
             'old' => $old,

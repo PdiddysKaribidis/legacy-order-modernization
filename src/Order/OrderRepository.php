@@ -31,14 +31,16 @@ final class OrderRepository
 
     /**
      * Two queries for any number of orders; the legacy list page ran one query per order.
+     * The filter is a raw status value, as in the legacy page: an unknown value finds nothing
+     * or finds orders the legacy status form saved with that value.
      *
      * @return list<Order>
      */
-    public function findAll(?OrderStatus $status = null): array
+    public function findAll(?string $statusCode = null): array
     {
-        $where = $status === null ? '' : 'WHERE status = ?';
+        $where = $statusCode === null ? '' : 'WHERE status = ?';
         $stmt = $this->pdo->prepare("SELECT * FROM orders {$where} ORDER BY id DESC");
-        $stmt->execute($status === null ? [] : [$status->value]);
+        $stmt->execute($statusCode === null ? [] : [$statusCode]);
         $rows = $stmt->fetchAll();
 
         $ids = [];
@@ -88,6 +90,8 @@ final class OrderRepository
 
     /**
      * Optimistic check: the update applies only if the status is still the one the decision was based on.
+     * $from and $to must differ: MySQL counts only rows that actually changed, so an update to the
+     * same value would report 0 rows. Order::changeStatus() rejects such a change before we get here.
      */
     public function updateStatus(int $orderId, OrderStatus $from, OrderStatus $to): bool
     {
@@ -135,7 +139,7 @@ final class OrderRepository
             (int) $row['id'],
             $row['customer_name'],
             $row['customer_email'],
-            OrderStatus::from($row['status']),
+            $row['status'],
             $items,
             new DateTimeImmutable($row['created_at']),
         );

@@ -11,22 +11,42 @@ final class Order
     public const DISCOUNT_THRESHOLD = 10_000_00;
     public const DISCOUNT_PERCENT = 5;
 
+    private ?OrderStatus $status;
+
     /**
+     * $statusCode is the raw value from the database. While the legacy pages are still in use,
+     * they can store any string there (their status form accepted anything), so an order
+     * with an unknown status must still be shown instead of breaking the page.
+     *
      * @param list<OrderItem> $items
      */
     public function __construct(
         public readonly int $id,
         public readonly string $customerName,
         public readonly string $customerEmail,
-        private OrderStatus $status,
+        private string $statusCode,
         private array $items,
         public readonly DateTimeImmutable $createdAt,
     ) {
+        $this->status = OrderStatus::tryFrom($statusCode);
     }
 
-    public function status(): OrderStatus
+    /**
+     * Null when the database holds a status this version does not know.
+     */
+    public function status(): ?OrderStatus
     {
         return $this->status;
+    }
+
+    public function statusCode(): string
+    {
+        return $this->statusCode;
+    }
+
+    public function statusLabel(): string
+    {
+        return $this->status?->label() ?? $this->statusCode;
     }
 
     /**
@@ -37,17 +57,29 @@ final class Order
         return $this->items;
     }
 
-    public function addItem(OrderItem $item): void
+    public function assertItemsCanBeAdded(): void
     {
         if ($this->status !== OrderStatus::New) {
             throw new OrderStateException('Позиции можно добавлять только в новый заказ.');
         }
+    }
+
+    public function addItem(OrderItem $item): void
+    {
+        $this->assertItemsCanBeAdded();
 
         $this->items[] = $item;
     }
 
     public function changeStatus(OrderStatus $next): void
     {
+        if ($this->status === null) {
+            throw new OrderStateException(
+                "У заказа неизвестный статус «{$this->statusCode}». Его нужно исправить в базе данных."
+            );
+        }
+
+        // Checked before the general rule only to keep the exact message of the legacy page.
         if ($next === OrderStatus::Cancelled && $this->status === OrderStatus::Shipped) {
             throw new OrderStateException('Отправленный заказ нельзя отменить');
         }
@@ -67,6 +99,7 @@ final class Order
         }
 
         $this->status = $next;
+        $this->statusCode = $next->value;
     }
 
     public function subtotal(): int

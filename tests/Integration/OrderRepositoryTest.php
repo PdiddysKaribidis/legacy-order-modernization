@@ -55,8 +55,18 @@ final class OrderRepositoryTest extends TestCase
         $this->orders->updateStatus($second, OrderStatus::New, OrderStatus::Paid);
 
         $this->assertSame([$second, $first], array_map(fn ($order) => $order->id, $this->orders->findAll()));
-        $this->assertSame([$second], array_map(fn ($order) => $order->id, $this->orders->findAll(OrderStatus::Paid)));
-        $this->assertSame([], $this->orders->findAll(OrderStatus::Shipped));
+        $this->assertSame([$second], array_map(fn ($order) => $order->id, $this->orders->findAll('paid')));
+        $this->assertSame([], $this->orders->findAll('shipped'));
+        $this->assertSame([], $this->orders->findAll('no-such-status'));
+    }
+
+    public function test_order_with_status_written_by_legacy_form_is_readable(): void
+    {
+        $id = $this->orders->create('Клиент', '', new DateTimeImmutable());
+        $this->pdo->prepare('UPDATE orders SET status = ? WHERE id = ?')->execute(['archived', $id]);
+
+        $this->assertSame('archived', $this->orders->get($id)->statusLabel());
+        $this->assertSame([$id], array_map(fn ($order) => $order->id, $this->orders->findAll('archived')));
     }
 
     public function test_list_loads_items_of_all_orders_with_two_queries(): void
@@ -101,7 +111,11 @@ final class OrderRepositoryTest extends TestCase
         $stmt->execute();
         $price = $stmt->fetchColumn();
 
-        $this->assertEquals(123.45, (float) $price);
+        // MySQL returns the exact DECIMAL string, SQLite a float; both must read back the same kopecks.
+        if (is_string($price)) {
+            $this->assertSame('123.45', $price);
+        }
+        $this->assertSame(123_45, $this->orders->get($id)->items()[0]->price);
     }
 
     public function test_item_cannot_reference_missing_order(): void

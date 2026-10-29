@@ -99,10 +99,32 @@ final class OrderTest extends TestCase
     }
 
     /**
+     * The legacy status form saved any value; such an order must still be readable.
+     */
+    public function test_order_with_unknown_status_is_shown_but_cannot_be_changed(): void
+    {
+        $order = new Order(1, 'Клиент', '', 'archived', [], new DateTimeImmutable());
+
+        $this->assertNull($order->status());
+        $this->assertSame('archived', $order->statusLabel());
+
+        $this->expectException(OrderStateException::class);
+        $this->expectExceptionMessage('неизвестный статус «archived»');
+        $order->changeStatus(OrderStatus::Cancelled);
+    }
+
+    public function test_items_cannot_be_added_to_order_with_unknown_status(): void
+    {
+        $this->expectException(OrderStateException::class);
+
+        (new Order(1, 'Клиент', '', 'archived', [], new DateTimeImmutable()))->assertItemsCanBeAdded();
+    }
+
+    /**
      * @param list<OrderItem> $items
      */
     private function order(OrderStatus $status, array $items = []): Order
     {
-        return new Order(1, 'Иван Петров', 'ivan@example.com', $status, $items, new DateTimeImmutable('2026-10-01 10:00'));
+        return new Order(1, 'Иван Петров', 'ivan@example.com', $status->value, $items, new DateTimeImmutable('2026-10-01 10:00'));
     }
 }

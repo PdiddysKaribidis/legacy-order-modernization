@@ -10,20 +10,17 @@ use App\Order\OrderService;
 use App\Order\OrderStateException;
 use App\Order\OrderStatus;
 use App\Order\ValidationException;
-use PDO;
 use PHPUnit\Framework\TestCase;
 use Tests\Support\TestDatabase;
 
 final class OrderServiceTest extends TestCase
 {
-    private PDO $pdo;
     private OrderRepository $orders;
     private OrderService $service;
 
     protected function setUp(): void
     {
-        $this->pdo = TestDatabase::connect();
-        $this->orders = new OrderRepository($this->pdo);
+        $this->orders = new OrderRepository(TestDatabase::connect());
         $this->service = new OrderService($this->orders);
     }
 
@@ -31,8 +28,8 @@ final class OrderServiceTest extends TestCase
     {
         $id = $this->service->createOrder('  Иван Петров ', 'ivan@example.com');
         $this->service->addItem($id, 'Кресло', '1', '12 990');
-        $this->service->changeStatus($id, OrderStatus::Paid);
-        $this->service->changeStatus($id, OrderStatus::Shipped);
+        $this->service->changeStatus($id, OrderStatus::Paid, 'new');
+        $this->service->changeStatus($id, OrderStatus::Shipped, 'paid');
 
         $order = $this->orders->get($id);
         $this->assertSame('Иван Петров', $order->customerName);
@@ -59,22 +56,36 @@ final class OrderServiceTest extends TestCase
         $this->assertSame('', $this->orders->get($id)->customerEmail);
     }
 
+    public function test_cyrillic_email_is_accepted(): void
+    {
+        $id = $this->service->createOrder('Иван', 'иван@почта.рф');
+
+        $this->assertSame('иван@почта.рф', $this->orders->get($id)->customerEmail);
+    }
+
+    public function test_email_longer_than_column_is_rejected(): void
+    {
+        $this->expectException(ValidationException::class);
+
+        $this->service->createOrder('Иван', str_repeat('a', 250) . '@example.com');
+    }
+
     public function test_cancel_new_and_paid_orders_but_not_shipped(): void
     {
         $new = $this->orderWithItem();
-        $this->service->cancelOrder($new);
+        $this->service->cancelOrder($new, 'new');
         $this->assertSame(OrderStatus::Cancelled, $this->orders->get($new)->status());
 
         $paid = $this->orderWithItem();
-        $this->service->changeStatus($paid, OrderStatus::Paid);
-        $this->service->cancelOrder($paid);
+        $this->service->changeStatus($paid, OrderStatus::Paid, 'new');
+        $this->service->cancelOrder($paid, 'paid');
         $this->assertSame(OrderStatus::Cancelled, $this->orders->get($paid)->status());
 
         $shipped = $this->orderWithItem();
-        $this->service->changeStatus($shipped, OrderStatus::Paid);
-        $this->service->changeStatus($shipped, OrderStatus::Shipped);
+        $this->service->changeStatus($shipped, OrderStatus::Paid, 'new');
+        $this->service->changeStatus($shipped, OrderStatus::Shipped, 'paid');
         $this->expectException(OrderStateException::class);
-        $this->service->cancelOrder($shipped);
+        $this->service->cancelOrder($shipped, 'shipped');
     }
 
     public function test_action_on_missing_order(): void
@@ -85,18 +96,32 @@ final class OrderServiceTest extends TestCase
     }
 
     /**
-     * Two managers have the same order open. One pays it; the other, with the stale page,
-     * cancels it. The second change must fail instead of overwriting the first.
+     * Two managers have the same new order open. One marks it as paid; the other,
+     * still looking at the page with status "new", clicks "Cancel". The cancel must
+     * be refused instead of silently cancelling a paid order.
      */
-    public function test_change_based_on_stale_status_is_rejected(): void
+    public function test_action_from_stale_page_is_refused(): void
     {
         $id = $this->orderWithItem();
-        $staleStatus = OrderStatus::New;
+        $this->service->changeStatus($id, OrderStatus::Paid, 'new');
 
-        $this->service->changeStatus($id, OrderStatus::Paid);
+        try {
+            $this->service->cancelOrder($id, 'new');
+            $this->fail('Expected OrderStateException');
+        } catch (OrderStateException $e) {
+            $this->assertStringContainsString('Заказ изменился', $e->getMessage());
+        }
 
-        $this->assertFalse($this->orders->updateStatus($id, $staleStatus, OrderStatus::Cancelled));
         $this->assertSame(OrderStatus::Paid, $this->orders->get($id)->status());
+    }
+
+    public function test_state_is_checked_before_item_fields(): void
+    {
+        $id = $this->orderWithItem();
+        $this->service->changeStatus($id, OrderStatus::Paid, 'new');
+
+        $this->expectException(OrderStateException::class);
+        $this->service->addItem($id, '', 'abc', 'abc');
     }
 
     private function orderWithItem(): int

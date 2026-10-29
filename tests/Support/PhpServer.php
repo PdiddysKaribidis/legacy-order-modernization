@@ -12,16 +12,19 @@ use RuntimeException;
  */
 final class PhpServer
 {
-    /** @var resource */
+    /** @var resource|null */
     private $process;
 
     public readonly string $baseUrl;
 
     /**
      * @param array<string, string> $env
+     * @param string $logFile server output, useful when a test fails in CI
      */
-    public function __construct(string $documentRoot, array $env)
+    public function __construct(string $documentRoot, array $env, public readonly string $logFile)
     {
+        // The port is found by binding to port 0 and releasing it; another process could take it
+        // in between, which is unlikely enough for a test suite and fails loudly if it happens.
         $port = self::freePort();
         $this->baseUrl = "http://127.0.0.1:{$port}";
 
@@ -31,8 +34,7 @@ final class PhpServer
             array_splice($command, 1, 0, ['-c', $ini]);
         }
 
-        $null = PHP_OS_FAMILY === 'Windows' ? 'NUL' : '/dev/null';
-        $process = proc_open($command, [['pipe', 'r'], ['file', $null, 'w'], ['file', $null, 'w']], $pipes, null, $env + getenv());
+        $process = proc_open($command, [['pipe', 'r'], ['file', $logFile, 'a'], ['file', $logFile, 'a']], $pipes, null, $env + getenv());
         if (!is_resource($process)) {
             throw new RuntimeException('Cannot start PHP built-in server.');
         }
@@ -41,10 +43,18 @@ final class PhpServer
         $this->waitUntilListening($port);
     }
 
+    public function __destruct()
+    {
+        $this->stop();
+    }
+
     public function stop(): void
     {
-        proc_terminate($this->process);
-        proc_close($this->process);
+        if ($this->process !== null) {
+            proc_terminate($this->process);
+            proc_close($this->process);
+            $this->process = null;
+        }
     }
 
     private static function freePort(): int
@@ -71,6 +81,9 @@ final class PhpServer
             usleep(100_000);
         }
 
-        throw new RuntimeException("PHP built-in server did not start on port {$port}.");
+        $this->stop();
+        throw new RuntimeException(
+            "PHP built-in server did not start on port {$port}. Log:\n" . @file_get_contents($this->logFile)
+        );
     }
 }

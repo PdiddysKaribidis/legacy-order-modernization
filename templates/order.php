@@ -21,7 +21,7 @@ $status = $order->status();
 <?php endforeach ?>
 
 <p>Клиент: <?= $this->e($order->customerName) ?> (<?= $this->e($order->customerEmail) ?>)</p>
-<p>Статус: <span class="status"><?= $status->label() ?></span></p>
+<p>Статус: <span class="status"><?= $this->e($order->statusLabel()) ?></span></p>
 <p>Создан: <?= $order->createdAt->format('d.m.Y H:i') ?></p>
 
 <table>
@@ -59,12 +59,13 @@ $status = $order->status();
     </form>
 <?php endif ?>
 
-<?php $nextStatuses = array_filter(OrderStatus::cases(), fn (OrderStatus $next) => $status->canTransitionTo($next)) ?>
+<?php $nextStatuses = array_filter(OrderStatus::cases(), fn (OrderStatus $next) => $status?->canTransitionTo($next) === true) ?>
 <?php if ($nextStatuses !== []): ?>
     <h2>Статус</h2>
     <form method="post" action="order.php?id=<?= $order->id ?>">
         <input type="hidden" name="csrf_token" value="<?= $this->e($csrfToken) ?>">
         <input type="hidden" name="action" value="change_status">
+        <input type="hidden" name="expected_status" value="<?= $this->e($order->statusCode()) ?>">
         <select name="status">
             <?php foreach ($nextStatuses as $next): ?>
                 <option value="<?= $next->value ?>"><?= $next->label() ?></option>
@@ -74,10 +75,11 @@ $status = $order->status();
     </form>
 <?php endif ?>
 
-<?php if ($status->canTransitionTo(OrderStatus::Cancelled)): ?>
+<?php if ($status?->canTransitionTo(OrderStatus::Cancelled) === true): ?>
     <form method="post" action="order.php?id=<?= $order->id ?>">
         <input type="hidden" name="csrf_token" value="<?= $this->e($csrfToken) ?>">
         <input type="hidden" name="action" value="cancel">
+        <input type="hidden" name="expected_status" value="<?= $this->e($order->statusCode()) ?>">
         <button type="submit" onclick="return confirm('Отменить заказ?')">Отменить заказ</button>
     </form>
 <?php endif ?>

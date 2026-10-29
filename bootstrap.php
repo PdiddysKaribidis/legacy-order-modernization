@@ -12,7 +12,8 @@ use App\Order\OrderService;
 
 require __DIR__ . '/vendor/autoload.php';
 
-// Builds the object graph for public/*.php. A container would be overkill for four classes.
+// Builds the objects for public/*.php by hand: with one controller and a few services
+// a DI container would add more code than it removes.
 
 $view = new View(__DIR__ . '/templates');
 
@@ -33,7 +34,10 @@ try {
     exit;
 }
 
-session_start(['cookie_httponly' => true, 'cookie_samesite' => 'Lax']);
+// The pages have one-click actions ("Cancel order"), so they must not be framed by other sites.
+header('X-Frame-Options: DENY');
+
+session_start(['cookie_httponly' => true, 'cookie_samesite' => 'Lax', 'use_strict_mode' => true]);
 
 $orders = new OrderRepository($pdo);
 

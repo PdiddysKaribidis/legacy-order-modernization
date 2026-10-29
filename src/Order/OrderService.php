@@ -11,6 +11,8 @@ use DateTimeImmutable;
  */
 final class OrderService
 {
+    private const STALE_PAGE = 'Заказ изменился, пока вы заполняли форму. Обновите страницу.';
+
     public function __construct(private readonly OrderRepository $orders)
     {
     }
@@ -27,8 +29,9 @@ final class OrderService
             $errors['customer_name'] = 'Имя клиента — не длиннее 100 символов.';
         }
 
-        // E-mail stays optional, as in the legacy form, but must be valid when given.
-        if ($customerEmail !== '' && filter_var($customerEmail, FILTER_VALIDATE_EMAIL) === false) {
+        // Optional, as in the legacy form. Only an obvious typo is rejected: a strict check
+        // (filter_var) would also reject Cyrillic addresses such as ivan@почта.рф.
+        if ($customerEmail !== '' && (mb_strlen($customerEmail) > 255 || !preg_match('/^[^@\s]+@[^@\s]+\.[^@\s]+$/u', $customerEmail))) {
             $errors['customer_email'] = 'Проверьте адрес e-mail.';
         }
 
@@ -42,29 +45,41 @@ final class OrderService
     public function addItem(int $orderId, string $productName, string $quantity, string $price): void
     {
         $order = $this->orders->get($orderId);
-        $item = OrderItem::fromInput($productName, $quantity, $price);
+        // State first: field errors are useless on a page that no longer has the form.
+        $order->assertItemsCanBeAdded();
 
+        $item = OrderItem::fromInput($productName, $quantity, $price);
         $order->addItem($item);
 
         if (!$this->orders->addItemToNewOrder($orderId, $item)) {
-            throw new OrderStateException('Заказ изменился, пока вы заполняли форму. Обновите страницу.');
+            throw new OrderStateException(self::STALE_PAGE);
         }
     }
 
-    public function changeStatus(int $orderId, OrderStatus $status): void
+    /**
+     * $expectedStatus is the status the manager saw when the page was rendered (a hidden form field).
+     * If the order has changed since then, the action is refused instead of being applied to an order
+     * the manager has not seen, e.g. cancelling an order a colleague has just marked as paid.
+     */
+    public function changeStatus(int $orderId, OrderStatus $status, string $expectedStatus): void
     {
         $order = $this->orders->get($orderId);
-        $previous = $order->status();
 
+        if ($order->statusCode() !== $expectedStatus) {
+            throw new OrderStateException(self::STALE_PAGE);
+        }
+
+        $previous = $order->status();
         $order->changeStatus($status);
 
-        if (!$this->orders->updateStatus($orderId, $previous, $status)) {
-            throw new OrderStateException('Заказ изменился, пока вы заполняли форму. Обновите страницу.');
+        // $previous is not null here: changeStatus() refuses orders with an unknown status.
+        if ($previous === null || !$this->orders->updateStatus($orderId, $previous, $status)) {
+            throw new OrderStateException(self::STALE_PAGE);
         }
     }
 
-    public function cancelOrder(int $orderId): void
+    public function cancelOrder(int $orderId, string $expectedStatus): void
     {
-        $this->changeStatus($orderId, OrderStatus::Cancelled);
+        $this->changeStatus($orderId, OrderStatus::Cancelled, $expectedStatus);
     }
 }
