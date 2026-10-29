@@ -72,15 +72,18 @@ docker compose up -d
 
 ## Запуск без Docker (SQLite)
 
-Нужен PHP 8.4+ с `pdo_sqlite`.
+Нужен PHP 8.4+ с `pdo_sqlite`. Команды для Linux/macOS:
 
 ```bash
 composer install
 php bin/create-sqlite-db.php var/orders.sqlite
-DB_DSN=sqlite:var/orders.sqlite php -S 127.0.0.1:8080 -t public
+DB_DSN="sqlite:$PWD/var/orders.sqlite" php -S 127.0.0.1:8080 -t public
 ```
 
-В PowerShell: `$env:DB_DSN='sqlite:var/orders.sqlite'; php -S 127.0.0.1:8080 -t public`.
+В PowerShell (Windows): `$env:DB_DSN="sqlite:$PWD\var\orders.sqlite"; php -S 127.0.0.1:8080 -t public`.
+
+Путь к файлу нужен абсолютный: встроенный сервер PHP делает текущей папкой `public/`,
+и относительный путь указывал бы на `public/var/orders.sqlite`.
 
 ## Настройки окружения
 
