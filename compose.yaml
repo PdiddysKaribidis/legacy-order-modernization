@@ -1,0 +1,49 @@
+# Both versions run side by side on the same database, as they would during a gradual migration.
+# Credentials below are for the local container only.
+
+x-app: &app
+  build: .
+  volumes:
+    - .:/app
+  environment:
+    DB_DSN: mysql:host=db;dbname=orders;charset=utf8mb4
+    DB_USER: orders
+    DB_PASSWORD: secret
+  depends_on:
+    db:
+      condition: service_healthy
+
+services:
+  app:
+    <<: *app
+    command: php -S 0.0.0.0:8000 -t public
+    ports:
+      - "8080:8000"
+
+  legacy:
+    <<: *app
+    command: php -S 0.0.0.0:8000 -t legacy
+    ports:
+      - "8081:8000"
+
+  db:
+    image: mariadb:11.8
+    environment:
+      MARIADB_DATABASE: orders
+      MARIADB_USER: orders
+      MARIADB_PASSWORD: secret
+      MARIADB_RANDOM_ROOT_PASSWORD: "1"
+    ports:
+      - "3306:3306"
+    volumes:
+      - db-data:/var/lib/mysql
+      - ./database/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+      - ./database/seed.sql:/docker-entrypoint-initdb.d/02-seed.sql:ro
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+volumes:
+  db-data:
